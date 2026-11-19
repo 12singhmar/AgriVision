@@ -1,0 +1,22 @@
+{
+    "Random Forest": {
+        "n_estimators": 200,
+        "min_samples_split": 5,
+        "min_samples_leaf": 1,
+        "max_features": 0.6,
+        "max_depth": null
+    },
+    "XGBoost": {
+        "subsample": 0.7,
+        "n_estimators": 200,
+        "max_depth": 4,
+        "learning_rate": 0.03,
+        "colsample_bytree": 0.7
+    },
+    "CatBoost": {
+        "learning_rate": 0.08,
+        "l2_leaf_reg": 3,
+        "iterations": 100,
+        "depth": 6
+    }
+}

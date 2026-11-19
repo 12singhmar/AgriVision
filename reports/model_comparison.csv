@@ -1,0 +1,8 @@
+Model,MAE,RMSE,R2_Score
+Extra Trees,8.7772,123.4003,0.9787
+Random Forest,9.7729,138.276,0.9732
+CatBoost,12.7315,144.3835,0.9708
+Gradient Boosting,11.2738,151.181,0.968
+XGBoost,15.6674,165.2418,0.9617
+Linear Regression,56.5451,309.0322,0.8662
+Ridge Regression,59.6838,318.1899,0.8581
