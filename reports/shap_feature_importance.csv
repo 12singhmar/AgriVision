@@ -1,0 +1,16 @@
+Feature,Mean_abs_SHAP
+Yield_lag1,0.1404
+Yield_roll3,0.0896
+Crop_Sugarcane,0.0157
+Crop_Year,0.0102
+Crop_Sesamum,0.0089
+Annual_Rainfall,0.0079
+Crop_Potato,0.0043
+Season_Whole Year,0.0038
+Crop_Maize,0.0035
+Crop_Sweet potato,0.0032
+State_Tamil Nadu,0.0026
+Years_since_last,0.0025
+Crop_Rice,0.0023
+Crop_Cashewnut,0.0021
+State_Madhya Pradesh,0.0018

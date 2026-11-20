@@ -1,462 +1,162 @@
 """
-AgriVision - Streamlit Web Application
-=======================================
-Interactive, modern agricultural intelligence dashboard for crop yield prediction,
-model benchmarking, explainable AI (SHAP), and focused Punjab regional analysis.
+AgriVision - Streamlit app
+==========================
+Three pages:
+1. Data     - what the dataset looks like and what was cleaned
+2. Predict  - forecast next year's yield for a Crop/State/Season
+3. Results  - model vs baseline comparison, feature importance, Punjab
+Run with:  streamlit run app/app.py
 """
 
 import os
+import sys
 import json
-import numpy as np
 import pandas as pd
 import streamlit as st
-import matplotlib.pyplot as plt
-import seaborn as sns
 
-# Set page configuration
-st.set_page_config(
-    page_title="AgriVision | ML Crop Yield Analytics",
-    page_icon="🌾",
-    layout="wide",
-    initial_sidebar_state="expanded",
-)
-
-# Paths
 BASE_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+sys.path.insert(0, os.path.join(BASE_DIR, "src"))
+from prediction import AgriVisionPredictor  # noqa: E402
+
 DATA_DIR = os.path.join(BASE_DIR, "data", "processed")
-RAW_DATA_PATH = os.path.join(BASE_DIR, "data", "raw", "crop_yield.csv")
-MODELS_DIR = os.path.join(BASE_DIR, "models")
 REPORTS_DIR = os.path.join(BASE_DIR, "reports")
 FIGURES_DIR = os.path.join(REPORTS_DIR, "figures")
 
-# Custom Styling
-st.markdown("""
-<style>
-    .main-title {
-        font-size: 2.3rem;
-        font-weight: 800;
-        color: #1b5e20;
-        margin-bottom: 0.2rem;
-    }
-    .sub-title {
-        font-size: 1.1rem;
-        color: #4b6b50;
-        margin-bottom: 1.5rem;
-    }
-    .metric-card {
-        background-color: #f1f8e9;
-        border-radius: 10px;
-        padding: 1.2rem;
-        border-left: 5px solid #2e7d32;
-        box-shadow: 0 2px 4px rgba(0,0,0,0.05);
-    }
-    .info-box {
-        background-color: #e8f5e9;
-        border-radius: 8px;
-        padding: 1rem;
-        border: 1px solid #c8e6c9;
-        margin-bottom: 1rem;
-    }
-    .warning-box {
-        background-color: #fff8e1;
-        border-radius: 8px;
-        padding: 1rem;
-        border: 1px solid #ffe082;
-        margin-bottom: 1rem;
-    }
-</style>
-""", unsafe_allow_html=True)
+st.set_page_config(page_title="AgriVision", page_icon="🌾", layout="wide")
 
 
 @st.cache_data
-def load_app_data():
-    """Loads cleaned dataset, metadata, and evaluation reports."""
-    cleaned_df = pd.read_csv(os.path.join(DATA_DIR, "cleaned_crop_yield.csv"))
-    with open(os.path.join(DATA_DIR, "metadata.json"), "r") as f:
-        metadata = json.load(f)
-    
-    comp_df = pd.read_csv(os.path.join(REPORTS_DIR, "model_comparison.csv"))
-    punjab_metrics_df = pd.read_csv(os.path.join(REPORTS_DIR, "punjab_metrics.csv"))
-    
-    with open(os.path.join(REPORTS_DIR, "shap_feature_importance.json"), "r") as f:
-        shap_rankings = json.load(f)
-
-    return cleaned_df, metadata, comp_df, punjab_metrics_df, shap_rankings
+def load_data():
+    df = pd.read_csv(os.path.join(DATA_DIR, "cleaned_crop_yield.csv"))
+    with open(os.path.join(DATA_DIR, "metadata.json")) as f:
+        meta = json.load(f)
+    reports = {name: pd.read_csv(os.path.join(REPORTS_DIR, f"{name}.csv"))
+               for name in ["model_comparison", "punjab_metrics", "crop_errors", "shap_feature_importance"]}
+    return df, meta, reports
 
 
 @st.cache_resource
 def load_predictor():
-    """Imports predictor module and loads trained preprocessor."""
-    import sys
-    sys.path.insert(0, os.path.join(BASE_DIR, "src"))
-    from prediction import AgriVisionPredictor
     return AgriVisionPredictor()
 
 
-# Load datasets
-try:
-    df, metadata, comp_df, punjab_metrics_df, shap_rankings = load_app_data()
-    predictor = load_predictor()
-    data_loaded = True
-except Exception as e:
-    st.error(f"Error loading project artifacts: {e}. Please ensure preprocessing and training scripts have run.")
-    data_loaded = False
+def show_figure(name, caption):
+    path = os.path.join(FIGURES_DIR, name)
+    if os.path.exists(path):
+        st.image(path, caption=caption, width="stretch")
 
 
-# Sidebar Navigation
+df, meta, reports = load_data()
+predictor = load_predictor()
+
 st.sidebar.title("🌾 AgriVision")
-st.sidebar.caption("Machine Learning Agricultural Performance & Yield Prediction")
-page = st.sidebar.radio(
-    "Navigation Menu",
-    [
-        "Home",
-        "Dataset Exploration",
-        "Yield Prediction",
-        "Model Comparison",
-        "Explainable AI (SHAP)",
-        "Punjab Analysis",
-    ],
-    index=0,
-)
-st.sidebar.markdown("---")
-st.sidebar.info(
-    "**Dataset Source**: Kaggle Indian Crop Yield Dataset (1997–2020)\n\n"
-    "**Models Evaluated**: 7 Regression Algorithms\n\n"
-    "**Validation Scheme**: Chronological Held-Out Test Set"
-)
+page = st.sidebar.radio("Page", ["Data", "Predict", "Results"])
+st.sidebar.caption("Crop yield forecasting for Indian states, 1997–2020")
 
-
-# ==========================================
-# PAGE 1: HOME
-# ==========================================
-if page == "Home":
-    st.markdown('<div class="main-title">🌾 AgriVision</div>', unsafe_allow_html=True)
-    st.markdown('<div class="sub-title">Machine Learning-Based Crop Yield Prediction and Agricultural Performance Analysis</div>', unsafe_allow_html=True)
-
-    col1, col2, col3, col4 = st.columns(4)
-    with col1:
-        st.markdown('<div class="metric-card"><h4>Total Records</h4><h2>19,689</h2><p>Historical Indian Farm Records</p></div>', unsafe_allow_html=True)
-    with col2:
-        st.markdown('<div class="metric-card"><h4>Crop Varieties</h4><h2>55</h2><p>Cereals, Pulses, Cash Crops</p></div>', unsafe_allow_html=True)
-    with col3:
-        st.markdown('<div class="metric-card"><h4>States Covered</h4><h2>30</h2><p>States & Union Territories</p></div>', unsafe_allow_html=True)
-    with col4:
-        st.markdown('<div class="metric-card"><h4>Time Horizon</h4><h2>1997–2020</h2><p>24 Years of Agronomic Data</p></div>', unsafe_allow_html=True)
-
-    st.markdown("### 🎯 Project Overview")
-    st.markdown("""
-    **AgriVision** is an end-to-end Machine Learning system developed to forecast agricultural crop yield across Indian states 
-    using historical agronomic, climatic, and seasonal indicators. 
-
-    The system focuses on rigorous engineering practices:
-    - **Data Leakage Elimination**: Investigating and removing direct mathematical dependencies between *Production*, *Cultivated Area*, and *Yield*.
-    - **Chronological Generalization**: Training strictly on earlier years (1997–2016) and evaluating on subsequent unseen years (2017–2020).
-    - **Multi-Algorithm Benchmarking**: Implementing, tuning, and comparing 7 distinct regression approaches from classical linear baselines to state-of-the-art tree ensembles.
-    - **Explainable AI (XAI)**: Applying **SHAP (Shapley Additive exPlanations)** to uncover model decision pathways while maintaining the critical distinction between correlation and causation.
-    - **Focused Regional Analytics**: Dedicated performance evaluation and crop-yield trend analysis for the agricultural heartland of **Punjab**.
-    """)
-
-    st.markdown("### 🔬 System Architecture & Workflow")
-    st.markdown("""
-    ```
-    Raw Historical Dataset (19,689 Records)
-             │
-             ▼
-    Data Preprocessing & Hygiene (Whitespace Trimming, Leakage Exclusion of Area & Production)
-             │
-             ▼
-    Chronological Split (Train: 1997–2016 [83.5%] | Test: 2017–2020 [16.5%])
-             │
-             ▼
-    Feature Transformation (StandardScaler for Weather/Inputs + OneHotEncoder for Categoricals)
-             │
-             ▼
-    7 Regression Algorithms Benchmark (Linear, Ridge, RF, Extra Trees, GBR, XGBoost, CatBoost)
-             │
-             ▼
-    TimeSeriesSplit Hyperparameter Tuning (Random Forest, XGBoost, CatBoost)
-             │
-             ▼
-    Explainable AI with SHAP + Focused Punjab Agronomic Analysis + Interactive UI
-    ```
-    """)
-
-
-# ==========================================
-# PAGE 2: DATASET EXPLORATION
-# ==========================================
-elif page == "Dataset Exploration":
-    st.header("📊 Dataset Exploration & Data Hygiene")
-    st.markdown("Explore the underlying distribution, categorical diversity, and statistical integrity of the historical dataset.")
-
-    tab1, tab2, tab3, tab4 = st.tabs(["Dataset Preview", "Distributions & Heatmap", "Data Leakage Investigation", "Summary Statistics"])
-
-    with tab1:
-        st.subheader("Historical Dataset Sample")
-        st.dataframe(df.head(100), use_container_width=True)
-        st.caption(f"Showing sample from {len(df):,} total records and {df.shape[1]} features.")
-
-    with tab2:
-        st.subheader("Feature Distributions & Correlation Analysis")
-        colA, colB = st.columns(2)
-
-        with colA:
-            st.markdown("**Top 15 Most Frequently Cultivated Crops**")
-            top_crops = df["Crop"].value_counts().head(15)
-            fig, ax = plt.subplots(figsize=(8, 5))
-            sns.barplot(x=top_crops.values, y=top_crops.index, ax=ax, palette="mako")
-            ax.set_xlabel("Record Count")
-            plt.tight_layout()
-            st.pyplot(fig)
-
-        with colB:
-            st.markdown("**Season Distribution**")
-            season_counts = df["Season"].value_counts()
-            fig, ax = plt.subplots(figsize=(6, 5))
-            ax.pie(season_counts, labels=season_counts.index, autopct="%1.1f%%", colors=sns.color_palette("Set2"))
-            plt.tight_layout()
-            st.pyplot(fig)
-
-        st.markdown("**Correlation Heatmap of Numerical Features**")
-        fig, ax = plt.subplots(figsize=(9, 5))
-        num_cols = ["Area", "Production", "Annual_Rainfall", "Fertilizer", "Pesticide", "Yield"]
-        corr = df[num_cols].corr()
-        sns.heatmap(corr, annot=True, cmap="YlGnBu", fmt=".2f", ax=ax, cbar=True)
-        plt.tight_layout()
-        st.pyplot(fig)
-
-    with tab3:
-        st.subheader("⚠️ Critical Data Leakage Prevention Analysis")
-        st.markdown("""
-        In agricultural machine learning, target leakage occurs when an input feature mathematically reveals or is derived 
-        from the prediction target.
-        
-        **1. Why Production & Area were EXCLUDED from the Predictive Features:**
-        - Mathematically, $\\text{Yield} = \\frac{\\text{Production}}{\\text{Area}}$.
-        - As demonstrated in our data hygiene check, the median ratio of $\\text{Yield} / (\\text{Production} / \\text{Area})$ is **0.996** (virtually 1.0).
-        - If `Production` or `Area` were retained as inputs, any machine learning algorithm would simply learn a trivial arithmetic division rather than learning agricultural dynamics.
-        - Furthermore, total harvest `Production` is only known *after* harvest, making it completely unavailable at sowing or growing time!
-
-        **2. What about Fertilizer and Pesticide?**
-        - In the raw dataset, `Fertilizer` and `Pesticide` represent total kilograms across the entire state crop acreage ($r = 0.973$ with Area).
-        - They are retained in the feature set as proxies for regional input intensity, but models are trained without `Area` to ensure no backdoor area leakage occurs.
-        """)
-
-    with tab4:
-        st.subheader("Statistical Summary of Numerical Features")
-        st.dataframe(df.describe().T, use_container_width=True)
-
-
-# ==========================================
-# PAGE 3: YIELD PREDICTION
-# ==========================================
-elif page == "Yield Prediction":
-    st.header("🌱 Live Crop Yield Prediction")
-    st.markdown("Enter crop cultivation, weather, and input parameters to forecast estimated yield per hectare.")
-
-    col1, col2 = st.columns([1, 1])
-
-    categories = metadata["categories"]
-    ranges = metadata["numerical_ranges"]
-
-    with col1:
-        st.subheader("🌾 Cultivation Context")
-        crop_select = st.selectbox("Select Crop", categories["crops"], index=categories["crops"].index("Wheat") if "Wheat" in categories["crops"] else 0)
-        state_select = st.selectbox("Select State", categories["states"], index=categories["states"].index("Punjab") if "Punjab" in categories["states"] else 0)
-        season_select = st.selectbox("Select Season", categories["seasons"], index=categories["seasons"].index("Rabi") if "Rabi" in categories["seasons"] else 0)
-        year_input = st.number_input("Crop Year", min_value=1997, max_value=2030, value=2024, step=1)
-
-    with col2:
-        st.subheader("🌦️ Environmental & Input Conditions")
-        rainfall_input = st.slider(
-            "Annual Rainfall (mm)",
-            min_value=float(ranges["Annual_Rainfall"]["min"]),
-            max_value=float(ranges["Annual_Rainfall"]["max"]),
-            value=float(ranges["Annual_Rainfall"]["median"]),
-            step=25.0,
-            help="Historical regional rainfall range: 301 mm to 6,552 mm"
-        )
-        fertilizer_input = st.number_input(
-            "Total Fertilizer Usage (kg)",
-            min_value=0.0,
-            max_value=float(ranges["Fertilizer"]["max"]),
-            value=float(ranges["Fertilizer"]["median"]),
-            step=50000.0,
-            help=f"Dataset median: {ranges['Fertilizer']['median']:,.0f} kg"
-        )
-        pesticide_input = st.number_input(
-            "Total Pesticide Usage (kg)",
-            min_value=0.0,
-            max_value=float(ranges["Pesticide"]["max"]),
-            value=float(ranges["Pesticide"]["median"]),
-            step=100.0,
-            help=f"Dataset median: {ranges['Pesticide']['median']:,.0f} kg"
-        )
-
-        model_options = {
-            "Extra Trees (Best Overall)": "extra_trees",
-            "Random Forest": "random_forest",
-            "CatBoost Regressor": "catboost",
-            "Gradient Boosting": "gradient_boosting",
-            "XGBoost Regressor": "xgboost",
-            "Linear Regression (Baseline)": "linear_regression",
-            "Ridge Regression": "ridge_regression",
-        }
-        selected_model_label = st.selectbox("Select Model for Prediction", list(model_options.keys()), index=0)
-        chosen_model_slug = model_options[selected_model_label]
-
-    predict_btn = st.button("🚀 Predict Crop Yield", type="primary", use_container_width=True)
-
-    if predict_btn:
-        input_data = {
-            "Crop": crop_select,
-            "State": state_select,
-            "Season": season_select,
-            "Crop_Year": year_input,
-            "Annual_Rainfall": rainfall_input,
-            "Fertilizer": fertilizer_input,
-            "Pesticide": pesticide_input,
-        }
-
-        try:
-            prediction_output = predictor.predict_single(input_data, model_slug=chosen_model_slug)
-
-            st.markdown("---")
-            res_col1, res_col2 = st.columns([1, 2])
-
-            with res_col1:
-                st.markdown(f"""
-                <div class="metric-card">
-                    <h4>Estimated Crop Yield</h4>
-                    <h1 style="color: #2e7d32; font-size: 3rem;">{prediction_output['predicted_yield']:.2f}</h1>
-                    <p><strong>Units:</strong> Metric Tonnes / Hectare (or Nuts/Ha for Coconut)</p>
-                    <p><strong>Model:</strong> {prediction_output['model_used']}</p>
-                </div>
-                """, unsafe_allow_html=True)
-
-            with res_col2:
-                if prediction_output["has_warnings"]:
-                    for w in prediction_output["warnings"]:
-                        st.warning(w)
-                else:
-                    st.success("✅ Inputs are safely within historical training distribution bounds.")
-
-                st.info(f"💡 **Model Estimate Context**: {prediction_output['disclaimer']}")
-
-        except Exception as err:
-            st.error(f"Prediction failed: {err}")
-
-
-# ==========================================
-# PAGE 4: MODEL COMPARISON
-# ==========================================
-elif page == "Model Comparison":
-    st.header("🏆 Regression Algorithm Benchmark & Evaluation")
-    st.markdown("Comprehensive performance evaluation of all 7 regression models on the **held-out test set (2017–2020)**.")
-
-    st.subheader("📋 Model Performance Comparison Table")
-    st.dataframe(
-        comp_df.style.highlight_max(subset=["R2_Score"], color="#c8e6c9")
-                     .highlight_min(subset=["MAE", "RMSE"], color="#c8e6c9")
-                     .format({"MAE": "{:.4f}", "RMSE": "{:.4f}", "R2_Score": "{:.4f}"}),
-        use_container_width=True
-    )
-
-    st.markdown("### 📊 Metric Visualizations")
-    bar_img_path = os.path.join(FIGURES_DIR, "model_comparison_bars.png")
-    if os.path.exists(bar_img_path):
-        st.image(bar_img_path, caption="Comparative Performance: R² Score, MAE, and RMSE across all 7 Models", use_container_width=True)
-
-    colA, colB = st.columns(2)
-    with colA:
-        act_pred_path = os.path.join(FIGURES_DIR, "actual_vs_predicted.png")
-        if os.path.exists(act_pred_path):
-            st.image(act_pred_path, caption="Actual vs. Predicted Yield on Held-Out Test Set (Log Scale)", use_container_width=True)
-
-    with colB:
-        resid_path = os.path.join(FIGURES_DIR, "residuals_distribution.png")
-        if os.path.exists(resid_path):
-            st.image(resid_path, caption="Residual (Prediction Error) Distribution", use_container_width=True)
-
-    st.markdown("### 🎓 Key Performance Insights for Viva")
-    st.markdown("""
-    1. **Tree Ensembles Outperform Linear Baselines**: 
-       - Linear Regression ($R^2 \\approx 0.866$) and Ridge ($R^2 \\approx 0.858$) perform moderately, but suffer higher MAE (~56.5) because agricultural yield exhibits strong non-linear thresholds (e.g. rainfall saturation, crop-specific biological limits).
-       - **Extra Trees Regressor** ($R^2 = 0.9787$, $\\text{MAE} = 8.78$) and **Random Forest Regressor** ($R^2 = 0.9732$, $\\text{MAE} = 9.77$) achieve top ranks by effectively partitioning categorical interactions (Crop $\\times$ Season $\\times$ State).
-    2. **Boosting Performance**:
-       - Gradient Boosting, CatBoost, and XGBoost all achieve strong $R^2 > 0.96$. CatBoost performs especially well with one-hot transformed features and L2 regularization.
-    3. **Generalization Over Time**:
-       - Testing exclusively on subsequent years (2017–2020) guarantees that the reported scores reflect genuine future forecast capability, not data interpolation.
-    """)
-
-
-# ==========================================
-# PAGE 5: EXPLAINABLE AI (SHAP)
-# ==========================================
-elif page == "Explainable AI (SHAP)":
-    st.header("🔍 Explainable AI (XAI) with SHAP")
-    st.markdown("Uncovering model decision pathways and feature contributions using Shapley Additive exPlanations.")
+# ---------------------------------------------------------------- DATA
+if page == "Data":
+    st.title("Dataset")
+    c1, c2, c3, c4 = st.columns(4)
+    c1.metric("Rows used", f"{len(df):,}")
+    c2.metric("Crops", df["Crop"].nunique())
+    c3.metric("States", df["State"].nunique())
+    c4.metric("Years", f"{df['Crop_Year'].min()}–{df['Crop_Year'].max()}")
 
     st.markdown("""
-    <div class="info-box">
-        <strong>⚠️ Crucial Viva Distinction: Association vs. Causation</strong><br>
-        A high SHAP value indicates that a feature strongly influences the model's statistical prediction. 
-        It does <em>not</em> prove that artificially increasing that feature will causally increase real-world crop yield. 
-        For example, high pesticide application is strongly associated with high-yield cash crops, but spraying excess pesticide on a dry grain field will not increase yield!
-    </div>
-    """, unsafe_allow_html=True)
+**Source:** Kaggle "Crop Yield in Indian States" (one row per crop × season × state × year).
 
-    colA, colB = st.columns(2)
-    with colA:
-        shap_bar_path = os.path.join(FIGURES_DIR, "shap_importance_bar.png")
-        if os.path.exists(shap_bar_path):
-            st.image(shap_bar_path, caption="Global Feature Importance (Mean Absolute SHAP Value)", use_container_width=True)
+**Cleaning and decisions**
+- Stripped trailing spaces from `Season` and `Crop`.
+- Removed **Coconut**: its yield is in nuts/ha (thousands), every other crop is in tonnes/ha.
+- **Production** and **Area** are not used: Yield = Production / Area, and Production is only known after harvest.
+- **Fertilizer** and **Pesticide** are not used: in this dataset they equal Area × a fixed rate per year, so they are not real measurements.
+- Added **lag features** from each crop/state/season's own past: last year's yield, 3-year average and years since the last record.
+  The first year of each series has no history and was dropped.
+- Train on years before 2017, test on 2017–2020.
+""")
+    st.subheader("Sample rows")
+    st.dataframe(df.head(50), width="stretch")
+    st.subheader("Most common crops")
+    st.bar_chart(df["Crop"].value_counts().head(15))
 
-    with colB:
-        shap_sum_path = os.path.join(FIGURES_DIR, "shap_summary.png")
-        if os.path.exists(shap_sum_path):
-            st.image(shap_sum_path, caption="SHAP Beeswarm Summary Plot (Feature Impact & Direction)", use_container_width=True)
+# ---------------------------------------------------------------- PREDICT
+elif page == "Predict":
+    st.title("Forecast next year's yield")
+    cats = meta["categories"]
+    c1, c2, c3 = st.columns(3)
+    crop = c1.selectbox("Crop", cats["crops"], index=cats["crops"].index("Wheat"))
+    state = c2.selectbox("State", cats["states"], index=cats["states"].index("Punjab"))
+    season = c3.selectbox("Season", cats["seasons"], index=cats["seasons"].index("Rabi"))
 
-    st.subheader("📋 Top Influential Features & Agronomic Interpretation")
-    ranking_df = pd.DataFrame(shap_rankings)
-    st.dataframe(ranking_df, use_container_width=True)
+    history = df[(df["Crop"] == crop) & (df["State"] == state) & (df["Season"] == season)].sort_values("Crop_Year")
+    if history.empty:
+        st.warning("No history for this combination, so last year's yield is unknown. Pick another combination.")
+        st.stop()
 
+    last = history.iloc[-1]
+    st.caption(f"History found: {len(history)} years, latest {int(last['Crop_Year'])} "
+               f"with yield {last['Yield']:.2f} t/ha. Values below are pre-filled from it; you can change them.")
+    st.line_chart(history.set_index("Crop_Year")["Yield"])
 
-# ==========================================
-# PAGE 6: PUNJAB ANALYSIS
-# ==========================================
-elif page == "Punjab Analysis":
-    st.header("🌾 Focused Agronomic Analysis: Punjab")
-    st.markdown("Detailed investigation of crop productivity, historical trends, and model performance in the agricultural powerhouse of Punjab.")
+    c1, c2, c3 = st.columns(3)
+    year = c1.number_input("Year to forecast", 1998, 2030, int(last["Crop_Year"]) + 1)
+    lag1 = c2.number_input("Last year's yield (t/ha)", 0.0, value=float(last["Yield"]), format="%.3f")
+    roll3 = c3.number_input("Average of last 3 years (t/ha)", 0.0,
+                            value=float(history["Yield"].tail(3).mean()), format="%.3f")
+    rain = st.slider("Annual rainfall (mm)", 300.0, 6600.0, float(last["Annual_Rainfall"]), step=10.0)
+    models = {"XGBoost": "xgboost", "Random Forest": "random_forest", "Gradient Boosting": "gradient_boosting",
+              "Ridge Regression": "ridge_regression", "Linear Regression": "linear_regression"}
+    model_name = st.selectbox("Model", list(models))
 
-    punjab_df = df[df["State"] == "Punjab"].copy()
+    if st.button("Predict", type="primary"):
+        row = {"Crop": crop, "State": state, "Season": season, "Crop_Year": int(year),
+               "Annual_Rainfall": rain, "Yield_lag1": lag1, "Yield_roll3": roll3, "Years_since_last": 1}
+        out = predictor.predict(row, models[model_name])
+        c1, c2 = st.columns(2)
+        c1.metric("Predicted yield (t/ha)", f"{out['predicted_yield']:.3f}",
+                  f"{out['change_pct']:+.1f}% vs last year" if out["change_pct"] is not None else None)
+        c2.metric("Naive guess (= last year)", f"{lag1:.3f}")
+        for w in out["warnings"]:
+            st.warning(w)
+        st.caption("Statistical estimate from state-level historical data; it does not know local soil, irrigation or pests. "
+                   "Tree models treat any year after 2016 like 2016; the trend comes from the lag inputs instead.")
 
-    col1, col2, col3 = st.columns(3)
-    with col1:
-        st.markdown(f'<div class="metric-card"><h4>Punjab Records</h4><h2>{len(punjab_df)}</h2><p>Historical Records (1997–2019)</p></div>', unsafe_allow_html=True)
-    with col2:
-        st.markdown(f'<div class="metric-card"><h4>Crops Grown</h4><h2>{punjab_df["Crop"].nunique()}</h2><p>Major: Wheat, Rice, Cotton, Maize</p></div>', unsafe_allow_html=True)
-    with col3:
-        st.markdown(f'<div class="metric-card"><h4>Mean Wheat Yield</h4><h2>{punjab_df[punjab_df["Crop"]=="Wheat"]["Yield"].mean():.2f}</h2><p>Tonnes / Hectare (Consistently High)</p></div>', unsafe_allow_html=True)
+# ---------------------------------------------------------------- RESULTS
+else:
+    st.title("Results on unseen years (2017–2020)")
+    comp = reports["model_comparison"]
+    st.dataframe(comp, width="stretch", hide_index=True)
 
-    st.markdown("### 📈 Historical Crop Yield Trends in Punjab")
-    trend_path = os.path.join(FIGURES_DIR, "punjab_historical_trends.png")
-    if os.path.exists(trend_path):
-        st.image(trend_path, caption="Punjab Crop Yield Trajectory Over Time (1997–2019)", use_container_width=True)
+    ml = comp[~comp["Model"].str.contains("Baseline")].iloc[0]
+    base = comp[comp["Model"] == "Last Year (Baseline)"].iloc[0]
+    st.markdown(f"""
+**Best model: {ml['Model']}.** Compared with simply repeating last year's yield:
+- MAE {base['MAE']:.3f} → **{ml['MAE']:.3f}** t/ha ({100 * (1 - ml['MAE'] / base['MAE']):.1f}% lower)
+- RMSE {base['RMSE']:.3f} → **{ml['RMSE']:.3f}** ({100 * (1 - ml['RMSE'] / base['RMSE']):.1f}% lower, so fewer large misses)
+- R² {base['R2']:.3f} → **{ml['R2']:.3f}**
+- Median % error: baseline {base['MdAPE_%']:.1f}% vs model {ml['MdAPE_%']:.1f}%. For a typical row, last year's yield is already a very good guess;
+  the model's gain comes mostly from the rows where yield changed a lot.
+""")
+    c1, c2 = st.columns(2)
+    with c1:
+        show_figure("model_comparison_bars.png", "Grey = baselines, green = ML models")
+    with c2:
+        show_figure("actual_vs_predicted.png", "Best model, test set (log axes)")
 
-    box_path = os.path.join(FIGURES_DIR, "punjab_crop_yield_comparison.png")
-    if os.path.exists(box_path):
-        st.image(box_path, caption="Punjab Crop Yield Variability Distribution", use_container_width=True)
+    st.subheader("Error by crop (10 most common crops)")
+    st.dataframe(reports["crop_errors"], width="stretch", hide_index=True)
 
-    st.subheader("🎯 Model Performance on Punjab Held-Out Test Set (58 Records)")
-    st.markdown("""
-    Because the Kaggle dataset is recorded at the state level (not district level), we evaluate how accurately 
-    our India-wide models generalize to the Punjab regional subset.
-    """)
-    st.dataframe(
-        punjab_metrics_df.style.highlight_max(subset=["Punjab_R2_Score"], color="#c8e6c9")
-                               .highlight_min(subset=["Punjab_MAE", "Punjab_RMSE"], color="#c8e6c9")
-                               .format({"Punjab_MAE": "{:.4f}", "Punjab_RMSE": "{:.4f}", "Punjab_R2_Score": "{:.4f}"}),
-        use_container_width=True
-    )
-    st.success("🌟 **Outstanding Result**: Random Forest and Extra Trees achieved an MAE of ~0.60 to 0.77 tonnes/ha and R² > 0.98 on Punjab test records!")
+    st.subheader("Which features matter (SHAP)")
+    st.caption("Models predict the change from last year, so this shows what pushes yield above or below last year's. "
+               "It shows association inside the model, not cause and effect.")
+    c1, c2 = st.columns(2)
+    with c1:
+        show_figure("shap_importance_bar.png", "Mean absolute SHAP value")
+    with c2:
+        st.dataframe(reports["shap_feature_importance"], width="stretch", hide_index=True)
+
+    st.subheader("Punjab")
+    n_pj = int(((df["State"] == "Punjab") & (df["Crop_Year"] >= meta["split_year"])).sum())
+    st.caption(f"Only {n_pj} Punjab test rows, so these numbers are noisy.")
+    st.dataframe(reports["punjab_metrics"], width="stretch", hide_index=True)
+    show_figure("punjab_historical_trends.png", "Punjab yield over time")

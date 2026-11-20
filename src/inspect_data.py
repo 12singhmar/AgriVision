@@ -1,7 +1,8 @@
+import os
 import pandas as pd
 import numpy as np
 
-csv_path = r"C:\Users\12sin\.gemini\antigravity\scratch\AgriVision\data\raw\crop_yield.csv"
+csv_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'data', 'raw', 'crop_yield.csv')
 df = pd.read_csv(csv_path)
 
 print("=" * 60)

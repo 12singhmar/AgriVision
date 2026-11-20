@@ -43,3 +43,7 @@ wheels/
 # OS generated files
 .DS_Store
 Thumbs.db
+
+# Private notes
+NOTES.md
+catboost_info/

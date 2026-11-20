@@ -1,8 +1,8 @@
-Model,MAE,RMSE,R2_Score
-Extra Trees,8.7772,123.4003,0.9787
-Random Forest,9.7729,138.276,0.9732
-CatBoost,12.7315,144.3835,0.9708
-Gradient Boosting,11.2738,151.181,0.968
-XGBoost,15.6674,165.2418,0.9617
-Linear Regression,56.5451,309.0322,0.8662
-Ridge Regression,59.6838,318.1899,0.8581
+Model,MAE,RMSE,R2,MdAPE_%
+XGBoost,0.843,7.2304,0.7532,9.34
+Last Year (Baseline),0.867,8.5033,0.6586,7.97
+Gradient Boosting,0.8683,8.4032,0.6666,8.25
+3-Year Avg (Baseline),0.8853,8.1308,0.6879,9.19
+Random Forest,0.8892,7.6515,0.7236,8.85
+Ridge Regression,0.9489,8.408,0.6662,8.56
+Linear Regression,0.951,8.4135,0.6658,8.66

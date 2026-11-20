@@ -1,0 +1,11 @@
+Crop,Last_Year_MAE,XGBoost_MAE
+Arhar/Tur,0.137,0.152
+Bajra,0.335,0.341
+Groundnut,0.178,0.187
+Maize,0.419,0.45
+Moong(Green Gram),0.096,0.104
+Onion,11.884,8.488
+Potato,1.347,1.326
+Rice,0.177,0.19
+Sesamum,0.371,0.164
+Urad,0.102,0.107

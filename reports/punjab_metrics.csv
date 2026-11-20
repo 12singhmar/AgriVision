@@ -1,8 +1,8 @@
-Model,Punjab_MAE,Punjab_RMSE,Punjab_R2_Score
-Random Forest,0.6043,1.7361,0.9906
-Extra Trees,0.7729,1.9893,0.9876
-Gradient Boosting,1.9274,4.8869,0.9253
-XGBoost,3.6678,8.0346,0.7982
-CatBoost,3.8512,8.6655,0.7652
-Ridge Regression,12.6813,14.255,0.3646
-Linear Regression,13.9789,15.0446,0.2923
+Model,MAE,RMSE,R2,MdAPE_%
+Last Year (Baseline),0.1637,0.4503,0.9994,4.21
+Gradient Boosting,0.1794,0.5262,0.9992,4.87
+3-Year Avg (Baseline),0.2693,0.7446,0.9983,6.23
+Random Forest,0.3107,0.9466,0.9973,5.29
+XGBoost,0.3239,1.173,0.9958,5.1
+Ridge Regression,0.5344,1.9634,0.9883,5.22
+Linear Regression,0.5383,1.9776,0.9882,5.15
