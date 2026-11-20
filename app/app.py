@@ -1,22 +1,16 @@
-"""
-AgriVision - Streamlit app
-==========================
-Three pages:
-1. Data     - what the dataset looks like and what was cleaned
-2. Predict  - forecast next year's yield for a Crop/State/Season
-3. Results  - model vs baseline comparison, feature importance, Punjab
-Run with:  streamlit run app/app.py
-"""
+# AgriVision - Streamlit app
+# Run with:  streamlit run app/app.py
+# Pages: Data / Predict / Results
 
 import os
 import sys
-import json
 import pandas as pd
 import streamlit as st
 
-BASE_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
-sys.path.insert(0, os.path.join(BASE_DIR, "src"))
-from prediction import AgriVisionPredictor  # noqa: E402
+BASE_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..")
+sys.path.append(os.path.join(BASE_DIR, "src"))
+from prediction import predict_yield
+from train_models import MODELS
 
 DATA_DIR = os.path.join(BASE_DIR, "data", "processed")
 REPORTS_DIR = os.path.join(BASE_DIR, "reports")
@@ -26,76 +20,63 @@ st.set_page_config(page_title="AgriVision", page_icon="🌾", layout="wide")
 
 
 @st.cache_data
-def load_data():
-    df = pd.read_csv(os.path.join(DATA_DIR, "cleaned_crop_yield.csv"))
-    with open(os.path.join(DATA_DIR, "metadata.json")) as f:
-        meta = json.load(f)
-    reports = {name: pd.read_csv(os.path.join(REPORTS_DIR, f"{name}.csv"))
-               for name in ["model_comparison", "punjab_metrics", "crop_errors", "shap_feature_importance"]}
-    return df, meta, reports
+def load_csv(path):
+    return pd.read_csv(path)
 
 
-@st.cache_resource
-def load_predictor():
-    return AgriVisionPredictor()
-
-
-def show_figure(name, caption):
-    path = os.path.join(FIGURES_DIR, name)
-    if os.path.exists(path):
-        st.image(path, caption=caption, width="stretch")
-
-
-df, meta, reports = load_data()
-predictor = load_predictor()
+df = load_csv(os.path.join(DATA_DIR, "cleaned_crop_yield.csv"))
 
 st.sidebar.title("🌾 AgriVision")
 page = st.sidebar.radio("Page", ["Data", "Predict", "Results"])
 st.sidebar.caption("Crop yield forecasting for Indian states, 1997–2020")
 
-# ---------------------------------------------------------------- DATA
+# ---------------- DATA ----------------
 if page == "Data":
     st.title("Dataset")
     c1, c2, c3, c4 = st.columns(4)
-    c1.metric("Rows used", f"{len(df):,}")
+    c1.metric("Rows used", len(df))
     c2.metric("Crops", df["Crop"].nunique())
     c3.metric("States", df["State"].nunique())
-    c4.metric("Years", f"{df['Crop_Year'].min()}–{df['Crop_Year'].max()}")
+    c4.metric("Years", str(df["Crop_Year"].min()) + "–" + str(df["Crop_Year"].max()))
 
     st.markdown("""
 **Source:** Kaggle "Crop Yield in Indian States" (one row per crop × season × state × year).
 
 **Cleaning and decisions**
-- Stripped trailing spaces from `Season` and `Crop`.
-- Removed **Coconut**: its yield is in nuts/ha (thousands), every other crop is in tonnes/ha.
-- **Production** and **Area** are not used: Yield = Production / Area, and Production is only known after harvest.
-- **Fertilizer** and **Pesticide** are not used: in this dataset they equal Area × a fixed rate per year, so they are not real measurements.
-- Added **lag features** from each crop/state/season's own past: last year's yield, 3-year average and years since the last record.
-  The first year of each series has no history and was dropped.
+- Removed extra spaces from `Season` and `Crop`.
+- Removed **Coconut**: its yield is in nuts/ha, every other crop is in tonnes/ha.
+- **Production** and **Area** are not used: Yield = Production / Area.
+- **Fertilizer** and **Pesticide** are not used: they are just Area × a fixed rate per year.
+- Added **lag features**: last year's yield, 3-year average and years since the last record.
+  The first year of each crop/state/season has no history and was dropped.
 - Train on years before 2017, test on 2017–2020.
 """)
     st.subheader("Sample rows")
-    st.dataframe(df.head(50), width="stretch")
+    st.dataframe(df.head(50))
     st.subheader("Most common crops")
     st.bar_chart(df["Crop"].value_counts().head(15))
 
-# ---------------------------------------------------------------- PREDICT
+# ---------------- PREDICT ----------------
 elif page == "Predict":
     st.title("Forecast next year's yield")
-    cats = meta["categories"]
-    c1, c2, c3 = st.columns(3)
-    crop = c1.selectbox("Crop", cats["crops"], index=cats["crops"].index("Wheat"))
-    state = c2.selectbox("State", cats["states"], index=cats["states"].index("Punjab"))
-    season = c3.selectbox("Season", cats["seasons"], index=cats["seasons"].index("Rabi"))
+    crops = sorted(df["Crop"].unique())
+    states = sorted(df["State"].unique())
+    seasons = sorted(df["Season"].unique())
 
-    history = df[(df["Crop"] == crop) & (df["State"] == state) & (df["Season"] == season)].sort_values("Crop_Year")
-    if history.empty:
-        st.warning("No history for this combination, so last year's yield is unknown. Pick another combination.")
+    c1, c2, c3 = st.columns(3)
+    crop = c1.selectbox("Crop", crops, index=crops.index("Wheat"))
+    state = c2.selectbox("State", states, index=states.index("Punjab"))
+    season = c3.selectbox("Season", seasons, index=seasons.index("Rabi"))
+
+    history = df[(df["Crop"] == crop) & (df["State"] == state) & (df["Season"] == season)]
+    history = history.sort_values("Crop_Year")
+    if len(history) == 0:
+        st.warning("No history for this combination, so last year's yield is unknown. Pick another one.")
         st.stop()
 
     last = history.iloc[-1]
-    st.caption(f"History found: {len(history)} years, latest {int(last['Crop_Year'])} "
-               f"with yield {last['Yield']:.2f} t/ha. Values below are pre-filled from it; you can change them.")
+    st.caption(f"Found {len(history)} years of history. Latest: {int(last['Crop_Year'])}, "
+               f"yield {last['Yield']:.2f} t/ha. The inputs below are filled from it.")
     st.line_chart(history.set_index("Crop_Year")["Yield"])
 
     c1, c2, c3 = st.columns(3)
@@ -104,59 +85,59 @@ elif page == "Predict":
     roll3 = c3.number_input("Average of last 3 years (t/ha)", 0.0,
                             value=float(history["Yield"].tail(3).mean()), format="%.3f")
     rain = st.slider("Annual rainfall (mm)", 300.0, 6600.0, float(last["Annual_Rainfall"]), step=10.0)
-    models = {"XGBoost": "xgboost", "Random Forest": "random_forest", "Gradient Boosting": "gradient_boosting",
-              "Ridge Regression": "ridge_regression", "Linear Regression": "linear_regression"}
-    model_name = st.selectbox("Model", list(models))
+
+    names = list(MODELS.values())
+    model_name = st.selectbox("Model", names, index=names.index("XGBoost"))
+    model_file = [f for f, n in MODELS.items() if n == model_name][0]
 
     if st.button("Predict", type="primary"):
         row = {"Crop": crop, "State": state, "Season": season, "Crop_Year": int(year),
-               "Annual_Rainfall": rain, "Yield_lag1": lag1, "Yield_roll3": roll3, "Years_since_last": 1}
-        out = predictor.predict(row, models[model_name])
-        c1, c2 = st.columns(2)
-        c1.metric("Predicted yield (t/ha)", f"{out['predicted_yield']:.3f}",
-                  f"{out['change_pct']:+.1f}% vs last year" if out["change_pct"] is not None else None)
-        c2.metric("Naive guess (= last year)", f"{lag1:.3f}")
-        for w in out["warnings"]:
-            st.warning(w)
-        st.caption("Statistical estimate from state-level historical data; it does not know local soil, irrigation or pests. "
-                   "Tree models treat any year after 2016 like 2016; the trend comes from the lag inputs instead.")
+               "Annual_Rainfall": rain, "Yield_lag1": lag1, "Yield_roll3": roll3,
+               "Years_since_last": max(int(year) - int(last["Crop_Year"]), 1)}
+        pred = predict_yield(row, model_file)
 
-# ---------------------------------------------------------------- RESULTS
+        c1, c2 = st.columns(2)
+        if lag1 > 0:
+            change = (pred / lag1 - 1) * 100
+            c1.metric("Predicted yield (t/ha)", f"{pred:.3f}", f"{change:+.1f}% vs last year")
+        else:
+            c1.metric("Predicted yield (t/ha)", f"{pred:.3f}")
+        c2.metric("Simple guess (= last year)", f"{lag1:.3f}")
+        st.caption("Estimate from state-level data. It doesn't know local soil, irrigation or pests.")
+
+# ---------------- RESULTS ----------------
 else:
     st.title("Results on unseen years (2017–2020)")
-    comp = reports["model_comparison"]
-    st.dataframe(comp, width="stretch", hide_index=True)
+    comp = load_csv(os.path.join(REPORTS_DIR, "model_comparison.csv"))
+    st.dataframe(comp, hide_index=True)
 
-    ml = comp[~comp["Model"].str.contains("Baseline")].iloc[0]
+    best = comp[~comp["Model"].str.contains("Baseline")].iloc[0]
     base = comp[comp["Model"] == "Last Year (Baseline)"].iloc[0]
+    mae_drop = (1 - best["MAE"] / base["MAE"]) * 100
+    rmse_drop = (1 - best["RMSE"] / base["RMSE"]) * 100
     st.markdown(f"""
-**Best model: {ml['Model']}.** Compared with simply repeating last year's yield:
-- MAE {base['MAE']:.3f} → **{ml['MAE']:.3f}** t/ha ({100 * (1 - ml['MAE'] / base['MAE']):.1f}% lower)
-- RMSE {base['RMSE']:.3f} → **{ml['RMSE']:.3f}** ({100 * (1 - ml['RMSE'] / base['RMSE']):.1f}% lower, so fewer large misses)
-- R² {base['R2']:.3f} → **{ml['R2']:.3f}**
-- Median % error: baseline {base['MdAPE_%']:.1f}% vs model {ml['MdAPE_%']:.1f}%. For a typical row, last year's yield is already a very good guess;
-  the model's gain comes mostly from the rows where yield changed a lot.
+**Best model: {best['Model']}.** Compared with just repeating last year's yield:
+- MAE {base['MAE']:.3f} → **{best['MAE']:.3f}** t/ha ({mae_drop:.1f}% lower)
+- RMSE {base['RMSE']:.3f} → **{best['RMSE']:.3f}** ({rmse_drop:.1f}% lower, so fewer big misses)
+- R² {base['R2']:.3f} → **{best['R2']:.3f}**
+- Median % error: baseline {base['MdAPE_%']:.1f}% vs model {best['MdAPE_%']:.1f}%.
+  For a normal row last year is already a good guess; the model helps most when yield changes a lot.
 """)
     c1, c2 = st.columns(2)
-    with c1:
-        show_figure("model_comparison_bars.png", "Grey = baselines, green = ML models")
-    with c2:
-        show_figure("actual_vs_predicted.png", "Best model, test set (log axes)")
+    c1.image(os.path.join(FIGURES_DIR, "model_comparison_bars.png"), caption="Grey = baselines, green = ML models")
+    c2.image(os.path.join(FIGURES_DIR, "actual_vs_predicted.png"), caption="Best model, test set (log axes)")
 
     st.subheader("Error by crop (10 most common crops)")
-    st.dataframe(reports["crop_errors"], width="stretch", hide_index=True)
+    st.dataframe(load_csv(os.path.join(REPORTS_DIR, "crop_errors.csv")), hide_index=True)
 
     st.subheader("Which features matter (SHAP)")
-    st.caption("Models predict the change from last year, so this shows what pushes yield above or below last year's. "
-               "It shows association inside the model, not cause and effect.")
+    st.caption("The model predicts the change from last year, so this shows what pushes yield up or down. "
+               "It is not cause and effect.")
     c1, c2 = st.columns(2)
-    with c1:
-        show_figure("shap_importance_bar.png", "Mean absolute SHAP value")
-    with c2:
-        st.dataframe(reports["shap_feature_importance"], width="stretch", hide_index=True)
+    c1.image(os.path.join(FIGURES_DIR, "shap_importance_bar.png"))
+    c2.dataframe(load_csv(os.path.join(REPORTS_DIR, "shap_feature_importance.csv")), hide_index=True)
 
     st.subheader("Punjab")
-    n_pj = int(((df["State"] == "Punjab") & (df["Crop_Year"] >= meta["split_year"])).sum())
-    st.caption(f"Only {n_pj} Punjab test rows, so these numbers are noisy.")
-    st.dataframe(reports["punjab_metrics"], width="stretch", hide_index=True)
-    show_figure("punjab_historical_trends.png", "Punjab yield over time")
+    st.caption("Only 56 Punjab test rows, so these numbers are noisy.")
+    st.dataframe(load_csv(os.path.join(REPORTS_DIR, "punjab_metrics.csv")), hide_index=True)
+    st.image(os.path.join(FIGURES_DIR, "punjab_historical_trends.png"), caption="Punjab yield over time")

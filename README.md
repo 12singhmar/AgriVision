@@ -123,7 +123,7 @@ src/preprocessing.py        cleaning, lag features, split, encoding
 src/train_models.py         5 models + tuning
 src/evaluate_models.py      metrics vs baselines, figures
 src/explainability.py       SHAP feature importance
-src/prediction.py           single prediction with input checks
+src/prediction.py           predict one row with a saved model
 app/app.py                  Streamlit app (Data / Predict / Results)
 reports/                    result tables and figures
 ```

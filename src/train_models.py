@@ -1,36 +1,29 @@
-"""
-AgriVision - Model Training
-===========================
-Trains 5 regression models on the log-change target (see preprocessing.to_target):
-1. Linear Regression   - simple linear baseline
-2. Ridge Regression    - linear + L2 penalty on coefficients
-3. Random Forest       - bagging: many independent trees, averaged
-4. Gradient Boosting   - boosting: trees added one by one to fix previous errors
-5. XGBoost             - regularised, faster gradient boosting
-
-Random Forest and XGBoost are tuned with RandomizedSearchCV using TimeSeriesSplit
-(the training data is sorted by year, so each fold validates on later years).
-"""
+# AgriVision - Step 2: train 5 models
+#
+#   Linear Regression  - straight-line fit
+#   Ridge Regression   - linear + L2 penalty (keeps coefficients small)
+#   Random Forest      - bagging: many trees on random samples, averaged
+#   Gradient Boosting  - boosting: each new tree fixes the errors of the previous ones
+#   XGBoost            - faster boosting with regularisation
+#
+# All models learn the log change from last year (see to_target in preprocessing.py).
 
 import os
 import json
-import logging
 import joblib
-import numpy as np
+import pandas as pd
 from sklearn.linear_model import LinearRegression, Ridge
 from sklearn.ensemble import RandomForestRegressor, GradientBoostingRegressor
 from sklearn.model_selection import RandomizedSearchCV, TimeSeriesSplit
 from xgboost import XGBRegressor
 
-logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
+from preprocessing import DATA_DIR, MODELS_DIR, BASE_DIR, FEATURES, to_target
 
-BASE_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
-PROCESSED_DATA_DIR = os.path.join(BASE_DIR, "data", "processed")
-MODELS_DIR = os.path.join(BASE_DIR, "models")
 REPORTS_DIR = os.path.join(BASE_DIR, "reports")
-N_JOBS = 2  # -1 ran out of resources on Windows
+N_JOBS = 2  # -1 crashed on my Windows laptop (out of resources)
 
-MODEL_NAMES = {
+# file name -> display name (also used by evaluate_models.py and the app)
+MODELS = {
     "linear_regression": "Linear Regression",
     "ridge_regression": "Ridge Regression",
     "random_forest": "Random Forest",
@@ -39,35 +32,42 @@ MODEL_NAMES = {
 }
 
 
-def tune(estimator, param_dist, X, z, name):
-    search = RandomizedSearchCV(
-        estimator, param_dist, n_iter=8, cv=TimeSeriesSplit(n_splits=3),
-        scoring="neg_root_mean_squared_error", random_state=42, n_jobs=N_JOBS,
-    )
+def tune(model, params, X, z):
+    # TimeSeriesSplit: the data is sorted by year, so each fold validates on LATER years
+    search = RandomizedSearchCV(model, params, n_iter=8, cv=TimeSeriesSplit(n_splits=3),
+                                scoring="neg_root_mean_squared_error", random_state=42, n_jobs=N_JOBS)
     search.fit(X, z)
-    logging.info(f"Best {name} params: {search.best_params_}")
     return search.best_params_
 
 
-def main():
-    os.makedirs(MODELS_DIR, exist_ok=True)
+if __name__ == "__main__":
     os.makedirs(REPORTS_DIR, exist_ok=True)
-    X = np.load(os.path.join(PROCESSED_DATA_DIR, "X_train_proc.npy"))
-    z = np.load(os.path.join(PROCESSED_DATA_DIR, "z_train.npy"))
-    logging.info(f"Training on X={X.shape}")
 
-    rf_params = tune(
-        RandomForestRegressor(random_state=42, n_jobs=N_JOBS),
-        {"n_estimators": [200, 300], "min_samples_leaf": [1, 3, 5, 10],
-         "max_features": [0.3, 0.5, 0.8], "max_depth": [10, 20, None]},
-        X, z, "Random Forest",
-    )
-    xgb_params = tune(
-        XGBRegressor(random_state=42, n_jobs=N_JOBS),
-        {"n_estimators": [200, 400, 600], "learning_rate": [0.03, 0.05, 0.1],
-         "max_depth": [3, 5, 7], "subsample": [0.8, 1.0], "colsample_bytree": [0.8, 1.0]},
-        X, z, "XGBoost",
-    )
+    train = pd.read_csv(os.path.join(DATA_DIR, "train_data.csv"))
+    preprocessor = joblib.load(os.path.join(MODELS_DIR, "preprocessor.joblib"))
+    X = preprocessor.transform(train[FEATURES])
+    z = to_target(train["Yield"], train["Yield_lag1"])
+    print("Training data shape:", X.shape)
+
+    print("Tuning Random Forest...")
+    rf_params = tune(RandomForestRegressor(random_state=42, n_jobs=N_JOBS), {
+        "n_estimators": [200, 300],
+        "min_samples_leaf": [1, 3, 5, 10],
+        "max_features": [0.3, 0.5, 0.8],
+        "max_depth": [10, 20, None],
+    }, X, z)
+    print("Best:", rf_params)
+
+    print("Tuning XGBoost...")
+    xgb_params = tune(XGBRegressor(random_state=42, n_jobs=N_JOBS), {
+        "n_estimators": [200, 400, 600],
+        "learning_rate": [0.03, 0.05, 0.1],
+        "max_depth": [3, 5, 7],
+        "subsample": [0.8, 1.0],
+        "colsample_bytree": [0.8, 1.0],
+    }, X, z)
+    print("Best:", xgb_params)
+
     with open(os.path.join(REPORTS_DIR, "hyperparameter_tuning.json"), "w") as f:
         json.dump({"Random Forest": rf_params, "XGBoost": xgb_params}, f, indent=4)
 
@@ -79,12 +79,7 @@ def main():
                                                        subsample=0.8, loss="huber", random_state=42),
         "xgboost": XGBRegressor(**xgb_params, random_state=42, n_jobs=N_JOBS),
     }
-    for slug, model in models.items():
+    for file_name, model in models.items():
         model.fit(X, z)
-        joblib.dump(model, os.path.join(MODELS_DIR, f"{slug}.joblib"))
-        logging.info(f"Saved {MODEL_NAMES[slug]}")
-
-
-if __name__ == "__main__":
-    main()
-    print("\n[SUCCESS] All models trained.")
+        joblib.dump(model, os.path.join(MODELS_DIR, file_name + ".joblib"))
+        print("Saved", MODELS[file_name])
