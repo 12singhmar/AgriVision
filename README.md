@@ -120,6 +120,7 @@ In Punjab, yields are very stable (wheat and rice change little each year), so "
 data/raw/crop_yield.csv     original dataset
 src/inspect_data.py         first look at the raw data
 src/preprocessing.py        cleaning, lag features, split, encoding
+src/eda.py                  EDA charts
 src/train_models.py         5 models + tuning
 src/evaluate_models.py      metrics vs baselines, figures
 src/explainability.py       SHAP feature importance
@@ -133,6 +134,7 @@ reports/                    result tables and figures
 ```bash
 pip install -r requirements.txt
 python src/preprocessing.py
+python src/eda.py
 python src/train_models.py
 python src/evaluate_models.py
 python src/explainability.py

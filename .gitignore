@@ -47,3 +47,6 @@ Thumbs.db
 # Private notes
 NOTES.md
 catboost_info/
+
+# Report and slides (filled in locally)
+submission/

@@ -1,9 +1,5 @@
-# AgriVision - Step 4: which features matter? (SHAP on XGBoost, the best model)
-#
-# SHAP value = how much one feature pushed one prediction up or down.
-# Average of |SHAP| over many rows = how important that feature is overall.
-# Note: the model predicts the CHANGE from last year, and SHAP shows
-# what the model uses, not cause and effect.
+# SHAP on xgboost to see which features matter the most
+# note: shap shows what the model uses, not cause and effect
 
 import os
 import joblib
@@ -25,21 +21,22 @@ if __name__ == "__main__":
     X_test = preprocessor.transform(test[FEATURES])
     feature_names = preprocessor.get_feature_names_out()
 
-    # 500 random test rows is enough and much faster than all of them
+    # using 500 random rows, all rows takes too long
     rng = np.random.default_rng(42)
     rows = rng.choice(len(X_test), size=500, replace=False)
-    shap_values = shap.TreeExplainer(model).shap_values(X_test[rows])
+    explainer = shap.TreeExplainer(model)
+    shap_values = explainer.shap_values(X_test[rows])
 
-    importance = pd.DataFrame({
-        "Feature": feature_names,
-        "Mean_abs_SHAP": np.abs(shap_values).mean(axis=0).round(4),
-    })
+    # importance = average of |shap value| for each feature
+    importance = pd.DataFrame()
+    importance["Feature"] = feature_names
+    importance["Mean_abs_SHAP"] = np.abs(shap_values).mean(axis=0).round(4)
     importance = importance.sort_values("Mean_abs_SHAP", ascending=False).head(15)
     importance.to_csv(os.path.join(REPORTS_DIR, "shap_feature_importance.csv"), index=False)
-    print(importance.to_string(index=False))
+    print(importance)
 
     plt.figure(figsize=(8, 6))
-    plt.barh(importance["Feature"][::-1], importance["Mean_abs_SHAP"][::-1], color="#2e7d32")
+    plt.barh(importance["Feature"][::-1], importance["Mean_abs_SHAP"][::-1], color="green")
     plt.xlabel("Mean |SHAP value|")
     plt.title("Top 15 features - XGBoost")
     plt.tight_layout()

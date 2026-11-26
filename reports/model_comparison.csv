@@ -1,8 +1,8 @@
-Model,MAE,RMSE,R2,MdAPE_%
-XGBoost,0.843,7.2304,0.7532,9.34
-Last Year (Baseline),0.867,8.5033,0.6586,7.97
-Gradient Boosting,0.8683,8.4032,0.6666,8.25
-3-Year Avg (Baseline),0.8853,8.1308,0.6879,9.19
-Random Forest,0.8892,7.6515,0.7236,8.85
-Ridge Regression,0.9489,8.408,0.6662,8.56
-Linear Regression,0.951,8.4135,0.6658,8.66
+Model,MAE,MSE,RMSE,R2,MdAPE_%
+XGBoost,0.843,52.2781,7.2304,0.7532,9.34
+Last Year (Baseline),0.867,72.307,8.5033,0.6586,7.97
+Gradient Boosting,0.8683,70.6137,8.4032,0.6666,8.25
+3-Year Avg (Baseline),0.8853,66.1091,8.1308,0.6879,9.19
+Random Forest,0.8892,58.5458,7.6515,0.7236,8.85
+Ridge Regression,0.9489,70.6939,8.408,0.6662,8.56
+Linear Regression,0.951,70.7874,8.4135,0.6658,8.66

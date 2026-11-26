@@ -1,18 +1,15 @@
-# AgriVision - Step 3: test every model on 2017-2020 and compare with 2 simple baselines
-#
-#   Last Year (Baseline)  -> this year's yield = last year's yield
-#   3-Year Avg (Baseline) -> this year's yield = average of the last 3 years
-#
-# Metrics: MAE, RMSE, R2 and MdAPE (median % error)
+# testing all models on 2017-2020 and comparing with 2 simple baselines
+# baseline 1: this year = last year
+# baseline 2: this year = average of last 3 years
 
 import os
 import joblib
 import numpy as np
 import pandas as pd
 import matplotlib
-matplotlib.use("Agg")  # save plots to files, don't open windows
+matplotlib.use("Agg")
 import matplotlib.pyplot as plt
-from sklearn.metrics import mean_absolute_error, root_mean_squared_error, r2_score
+from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
 
 from preprocessing import DATA_DIR, MODELS_DIR, FEATURES, from_target
 from train_models import MODELS, REPORTS_DIR
@@ -21,24 +18,23 @@ FIGURES_DIR = os.path.join(REPORTS_DIR, "figures")
 
 
 def get_metrics(actual, pred):
-    ok = actual > 0.05  # % error makes no sense when actual yield is ~0
+    mae = mean_absolute_error(actual, pred)
+    mse = mean_squared_error(actual, pred)
+    rmse = np.sqrt(mse)
+    r2 = r2_score(actual, pred)
+    # median % error, skipping rows where yield is ~0 (cant divide by 0)
+    ok = actual > 0.05
     mdape = np.median(np.abs(pred[ok] - actual[ok]) / actual[ok]) * 100
-    return {
-        "MAE": round(mean_absolute_error(actual, pred), 4),
-        "RMSE": round(root_mean_squared_error(actual, pred), 4),
-        "R2": round(r2_score(actual, pred), 4),
-        "MdAPE_%": round(mdape, 2),
-    }
+    return [round(mae, 4), round(mse, 4), round(rmse, 4), round(r2, 4), round(mdape, 2)]
 
 
-def compare(actual, preds):
+def make_table(actual, preds):
     rows = []
     for name in preds:
-        row = get_metrics(actual, preds[name])
-        row["Model"] = name
-        rows.append(row)
-    table = pd.DataFrame(rows)[["Model", "MAE", "RMSE", "R2", "MdAPE_%"]]
-    return table.sort_values("MAE").reset_index(drop=True)
+        rows.append([name] + get_metrics(actual, preds[name]))
+    table = pd.DataFrame(rows, columns=["Model", "MAE", "MSE", "RMSE", "R2", "MdAPE_%"])
+    table = table.sort_values("MAE").reset_index(drop=True)
+    return table
 
 
 if __name__ == "__main__":
@@ -51,60 +47,65 @@ if __name__ == "__main__":
     actual = test["Yield"].values
     last_year = test["Yield_lag1"].values
 
-    # predictions of the 2 baselines and the 5 models
-    preds = {
-        "Last Year (Baseline)": last_year,
-        "3-Year Avg (Baseline)": test["Yield_roll3"].values,
-    }
-    for file_name, name in MODELS.items():
+    preds = {}
+    preds["Last Year (Baseline)"] = last_year
+    preds["3-Year Avg (Baseline)"] = test["Yield_roll3"].values
+    for file_name in MODELS:
         model = joblib.load(os.path.join(MODELS_DIR, file_name + ".joblib"))
         z_pred = model.predict(X_test)
-        preds[name] = from_target(z_pred, last_year)  # convert log change back to t/ha
+        preds[MODELS[file_name]] = from_target(z_pred, last_year)  # back to t/ha
 
-    # 1. all test rows
-    results = compare(actual, preds)
+    results = make_table(actual, preds)
     results.to_csv(os.path.join(REPORTS_DIR, "model_comparison.csv"), index=False)
-    print("\nTest set,", len(actual), "rows")
+    print("Test set,", len(actual), "rows")
     print(results.to_string(index=False))
 
-    # 2. only Punjab rows
-    punjab = (test["State"] == "Punjab").values
-    punjab_preds = {name: p[punjab] for name, p in preds.items()}
-    punjab_results = compare(actual[punjab], punjab_preds)
+    # only punjab rows
+    pj = (test["State"] == "Punjab").values
+    pj_preds = {}
+    for name in preds:
+        pj_preds[name] = preds[name][pj]
+    punjab_results = make_table(actual[pj], pj_preds)
     punjab_results.to_csv(os.path.join(REPORTS_DIR, "punjab_metrics.csv"), index=False)
-    print("\nPunjab,", punjab.sum(), "rows")
+    print("\nPunjab,", pj.sum(), "rows")
     print(punjab_results.to_string(index=False))
 
-    # 3. error per crop: best model vs last-year baseline (10 most common crops)
-    best = results[~results["Model"].str.contains("Baseline")]["Model"].iloc[0]
-    print("\nBest ML model:", best)
-    errors = pd.DataFrame({
-        "Crop": test["Crop"],
-        "Last_Year_MAE": np.abs(last_year - actual),
-        best + "_MAE": np.abs(preds[best] - actual),
-    })
-    top_crops = errors["Crop"].value_counts().head(10).index
-    crop_errors = errors[errors["Crop"].isin(top_crops)].groupby("Crop").mean().round(3)
+    # best ML model = first row that is not a baseline
+    ml_only = results[results["Model"].str.contains("Baseline") == False]
+    best = ml_only["Model"].iloc[0]
+    print("\nbest model:", best)
+
+    # error for each crop (10 most common crops)
+    errors = pd.DataFrame()
+    errors["Crop"] = test["Crop"]
+    errors["Last_Year_MAE"] = np.abs(last_year - actual)
+    errors[best + "_MAE"] = np.abs(preds[best] - actual)
+    top10 = errors["Crop"].value_counts().head(10).index
+    crop_errors = errors[errors["Crop"].isin(top10)].groupby("Crop").mean().round(3)
     crop_errors.to_csv(os.path.join(REPORTS_DIR, "crop_errors.csv"))
 
-    # ---------------- figures ----------------
-    # model comparison bars (grey = baseline, green = ML)
+    # ---- graphs ----
+
+    # bar chart, grey = baselines, green = models
     colors = []
     for m in results["Model"]:
-        colors.append("#9e9e9e" if "Baseline" in m else "#2e7d32")
+        if "Baseline" in m:
+            colors.append("grey")
+        else:
+            colors.append("green")
     fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(14, 5))
     ax1.barh(results["Model"], results["MAE"], color=colors)
     ax1.set_title("MAE (lower is better)")
     ax1.invert_yaxis()
     ax2.barh(results["Model"], results["R2"], color=colors)
-    ax2.set_title("R² (higher is better)")
+    ax2.set_title("R2 (higher is better)")
     ax2.invert_yaxis()
-    plt.suptitle("Test set 2017–2020 (grey = baselines)")
+    plt.suptitle("Test set 2017-2020 (grey = baselines)")
     plt.tight_layout()
     plt.savefig(os.path.join(FIGURES_DIR, "model_comparison_bars.png"), dpi=150)
     plt.close()
 
-    # actual vs predicted, log axes because yields go from 0.1 to 100+ t/ha
+    # actual vs predicted (log scale since yield goes from 0.1 to 100+)
     p = preds[best]
     keep = (actual > 0) & (p > 0)
     plt.figure(figsize=(7, 6))
@@ -120,19 +121,19 @@ if __name__ == "__main__":
     plt.savefig(os.path.join(FIGURES_DIR, "actual_vs_predicted.png"), dpi=150)
     plt.close()
 
-    # residuals
+    # errors histogram
     plt.figure(figsize=(7, 4))
-    plt.hist(actual - p, bins=80, range=(-5, 5), color="#2e7d32")
-    plt.title("Residuals (actual - predicted), zoomed to ±5 t/ha")
+    plt.hist(actual - p, bins=80, range=(-5, 5), color="green")
+    plt.title("Residuals (actual - predicted), between -5 and 5 t/ha")
     plt.tight_layout()
     plt.savefig(os.path.join(FIGURES_DIR, "residuals_distribution.png"), dpi=150)
     plt.close()
 
-    # Punjab yield over the years
-    pj = full[full["State"] == "Punjab"]
+    # punjab yield over the years
+    punjab = full[full["State"] == "Punjab"]
     plt.figure(figsize=(10, 5))
     for crop in ["Wheat", "Rice", "Maize", "Cotton(lint)"]:
-        yearly = pj[pj["Crop"] == crop].groupby("Crop_Year")["Yield"].mean()
+        yearly = punjab[punjab["Crop"] == crop].groupby("Crop_Year")["Yield"].mean()
         plt.plot(yearly.index, yearly.values, marker="o", label=crop)
     plt.title("Punjab: yield over time")
     plt.xlabel("Year")
@@ -141,4 +142,4 @@ if __name__ == "__main__":
     plt.tight_layout()
     plt.savefig(os.path.join(FIGURES_DIR, "punjab_historical_trends.png"), dpi=150)
     plt.close()
-    print("Figures saved.")
+    print("graphs saved")
